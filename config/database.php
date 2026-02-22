@@ -98,6 +98,20 @@ return [
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
+        'supabase' => [
+            'driver' => 'pgsql',
+            'host' => 'aws-1-ap-south-1.pooler.supabase.com',
+            'port' => '5432',
+            'database' => 'postgres',
+            'username' => 'postgres.derxyoqrzeuoatmbrvhx',
+            'password' => "Diaz/']123]\\",
+            'charset' => 'utf8',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => 'require',
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),

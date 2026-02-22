@@ -9,10 +9,16 @@ document.addEventListener('DOMContentLoaded', () => {
     initDateDisplay();
     initFileUploads();
     initProcessButton();
+    initRefreshResults();
+    initResultTabs();
     initCharts();
     initCountAnimation();
     initSettingsForms();
+    loadResultsData(); // Auto-load data on page load
 });
+
+// Global chart instance for dynamic updates
+let pieChartInstance = null;
 
 // ===== SIDEBAR TOGGLE =====
 function initSidebar() {
@@ -174,19 +180,44 @@ function initProcessButton() {
             return;
         }
 
-        // Show loading
-        const loadingOverlay = document.getElementById('loading-overlay');
-        if (loadingOverlay) loadingOverlay.style.display = 'flex';
+        // Show processing popup
+        Swal.fire({
+            title: 'Memproses Data',
+            html: `
+                <div style="text-align:center;">
+                    <div style="margin: 20px 0;">
+                        <div style="width:60px;height:60px;border:3px solid rgba(99,102,241,0.15);border-top:3px solid #6366f1;border-radius:50%;animation:swal-spin 1s linear infinite;margin:0 auto;"></div>
+                    </div>
+                    <p style="color:#94a3b8;margin-bottom:8px;">Mengirim file ke server untuk diproses...</p>
+                    <div style="height:4px;background:rgba(255,255,255,0.05);border-radius:4px;overflow:hidden;margin-top:16px;">
+                        <div style="height:100%;width:30%;background:linear-gradient(90deg,#6366f1,#8b5cf6);border-radius:4px;animation:swal-progress 2s ease-in-out infinite;"></div>
+                    </div>
+                </div>
+                <style>
+                    @keyframes swal-spin { to { transform: rotate(360deg); } }
+                    @keyframes swal-progress {
+                        0% { width:0%;margin-left:0; }
+                        50% { width:60%;margin-left:20%; }
+                        100% { width:0%;margin-left:100%; }
+                    }
+                </style>
+            `,
+            background: '#1a1f35',
+            color: '#f1f5f9',
+            showConfirmButton: false,
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+        });
 
         // Build FormData
         const formData = new FormData();
         formData.append('general_ledger', glInput.files[0]);
         formData.append('bank_statement', bsInput.files[0]);
 
-        // Get CSRF token
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
         try {
+            // Send to webhook
             const response = await fetch('/api/rekonsiliasi', {
                 method: 'POST',
                 body: formData,
@@ -196,33 +227,37 @@ function initProcessButton() {
                 },
             });
 
-            // Hide loading
-            if (loadingOverlay) loadingOverlay.style.display = 'none';
-
             const result = await response.json();
 
-            if (result.success) {
-                Swal.fire({
-                    icon: 'success',
-                    title: 'Rekonsiliasi Berhasil!',
-                    html: `<p style="color:#94a3b8;">Data telah berhasil dikirim ke server n8n untuk diproses.</p>
-                           <p style="color:#64748b;font-size:0.85rem;margin-top:8px;">Response: ${String(result.data).substring(0, 200)}</p>`,
-                    background: '#1a1f35',
-                    color: '#f1f5f9',
-                    confirmButtonColor: '#10b981',
-                    confirmButtonText: 'Tutup',
-                });
-            } else {
+            if (!result.success) {
                 throw new Error(result.message || `HTTP Error: ${result.status}`);
             }
-        } catch (error) {
-            // Hide loading
-            if (loadingOverlay) loadingOverlay.style.display = 'none';
 
+            // Close processing popup
+            Swal.close();
+
+            // Show success popup
+            Swal.fire({
+                icon: 'success',
+                title: 'File Berhasil Diproses!',
+                html: '<p style="color:#94a3b8;">File sudah dikirim ke server. Klik tombol <strong style="color:#6366f1;">Refresh Data</strong> pada tabel di bawah untuk mengambil hasil rekonsiliasi.</p>',
+                background: '#1a1f35',
+                color: '#f1f5f9',
+                confirmButtonColor: '#10b981',
+                confirmButtonText: 'OK',
+            });
+
+            // Show results section
+            const resultsSection = document.getElementById('results-section');
+            if (resultsSection) {
+                resultsSection.style.display = 'block';
+                resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        } catch (error) {
             Swal.fire({
                 icon: 'error',
                 title: 'Proses Gagal',
-                html: `<p style="color:#94a3b8;">Terjadi kesalahan saat mengirim data ke webhook.</p>
+                html: `<p style="color:#94a3b8;">Terjadi kesalahan saat memproses data.</p>
                        <p style="color:#ef4444;font-size:0.85rem;margin-top:8px;">${error.message}</p>`,
                 background: '#1a1f35',
                 color: '#f1f5f9',
@@ -230,6 +265,218 @@ function initProcessButton() {
                 confirmButtonText: 'Coba Lagi',
             });
         }
+    });
+}
+
+// ===== REFRESH RESULTS =====
+function initRefreshResults() {
+    const refreshBtn = document.getElementById('btn-refresh-results');
+    if (!refreshBtn) return;
+
+    refreshBtn.addEventListener('click', async () => {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+        // Show loading state on button
+        const originalText = refreshBtn.innerHTML;
+        refreshBtn.disabled = true;
+        refreshBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="display:inline;vertical-align:middle;animation:swal-spin 1s linear infinite;">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+            </svg>
+            Memuat...
+        `;
+
+        try {
+            const response = await fetch('/api/rekonsiliasi/results', {
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                },
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                populateResultTables(data.data, data.summary);
+                updatePieChart(data.summary);
+                const totalCount = data.summary.matched_count + data.summary.unmatched_count + data.summary.pair_not_found_count;
+                if (totalCount > 0) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Data Diperbarui!',
+                        html: `
+                            <div style="display:flex;gap:16px;justify-content:center;margin:16px 0;">
+                                <div style="text-align:center;padding:12px 16px;background:rgba(16,185,129,0.1);border-radius:8px;border:1px solid rgba(16,185,129,0.2);">
+                                    <div style="font-size:1.5rem;font-weight:700;color:#10b981;">${data.summary.matched_count}</div>
+                                    <div style="font-size:0.75rem;color:#94a3b8;">Matched</div>
+                                </div>
+                                <div style="text-align:center;padding:12px 16px;background:rgba(239,68,68,0.1);border-radius:8px;border:1px solid rgba(239,68,68,0.2);">
+                                    <div style="font-size:1.5rem;font-weight:700;color:#ef4444;">${data.summary.unmatched_count}</div>
+                                    <div style="font-size:0.75rem;color:#94a3b8;">Unmatched</div>
+                                </div>
+                                <div style="text-align:center;padding:12px 16px;background:rgba(245,158,11,0.1);border-radius:8px;border:1px solid rgba(245,158,11,0.2);">
+                                    <div style="font-size:1.5rem;font-weight:700;color:#f59e0b;">${data.summary.pair_not_found_count}</div>
+                                    <div style="font-size:0.75rem;color:#94a3b8;">Not Found</div>
+                                </div>
+                            </div>
+                        `,
+                        background: '#1a1f35',
+                        color: '#f1f5f9',
+                        confirmButtonColor: '#10b981',
+                        timer: 3000,
+                        timerProgressBar: true,
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'info',
+                        title: 'Belum Ada Data',
+                        text: 'Hasil rekonsiliasi belum tersedia. Coba refresh lagi nanti.',
+                        background: '#1a1f35',
+                        color: '#f1f5f9',
+                        confirmButtonColor: '#6366f1',
+                    });
+                }
+            } else {
+                throw new Error(data.message || 'Gagal mengambil data');
+            }
+        } catch (error) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Gagal Mengambil Data',
+                text: error.message,
+                background: '#1a1f35',
+                color: '#f1f5f9',
+                confirmButtonColor: '#6366f1',
+            });
+        } finally {
+            refreshBtn.disabled = false;
+            refreshBtn.innerHTML = originalText;
+        }
+    });
+}
+
+// ===== RESULT TABLE HELPERS =====
+function populateResultTables(data, summary) {
+    // Update summary counts
+    updateCount('matched-count', summary.matched_count);
+    updateCount('unmatched-count', summary.unmatched_count);
+    updateCount('notfound-count', summary.pair_not_found_count);
+    updateCount('tab-matched-count', summary.matched_count);
+    updateCount('tab-unmatched-count', summary.unmatched_count);
+    updateCount('tab-notfound-count', summary.pair_not_found_count);
+
+    // Populate table bodies
+    renderTableBody('tbody-matched', data.matched, 'matched');
+    renderTableBody('tbody-unmatched', data.unmatched, 'unmatched');
+    renderTableBody('tbody-pair_not_found', data.pair_not_found, 'pair_not_found');
+}
+
+function updateCount(elementId, count) {
+    const el = document.getElementById(elementId);
+    if (el) el.textContent = count;
+}
+
+function renderTableBody(tbodyId, rows, type) {
+    const tbody = document.getElementById(tbodyId);
+    if (!tbody) return;
+
+    if (!rows || rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="table-empty">Tidak ada data</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = rows.map((row, index) => {
+        // Format created_at as full date + time (Waktu Proses)
+        let waktuProses = '-';
+        if (row.created_at) {
+            const d = new Date(row.created_at);
+            waktuProses = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
+                + ' ' + d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+        const sumberData = row.sumber_data || '-';
+        const alasan = row.alasan_catatan || '-';
+        const bsId = row.bank_statement_id || '-';
+        const glId = row.internal_ledger_id || '-';
+        const status = row.status_rekonsiliasi || type;
+
+        const statusClass = type === 'matched' ? 'status-match'
+            : type === 'unmatched' ? 'status-unmatch'
+                : 'status-notfound';
+
+        return `
+            <tr>
+                <td>${index + 1}</td>
+                <td style="white-space:nowrap;">${waktuProses}</td>
+                <td>${sumberData}</td>
+                <td>${alasan}</td>
+                <td>${bsId} / ${glId}</td>
+                <td><span class="status-badge ${statusClass}">${status}</span></td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// ===== LOAD RESULTS DATA (auto-load on page load + refresh) =====
+async function loadResultsData() {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    try {
+        const response = await fetch('/api/rekonsiliasi/results', {
+            headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfToken },
+        });
+        const data = await response.json();
+        if (data.success) {
+            populateResultTables(data.data, data.summary);
+            updatePieChart(data.summary);
+        }
+    } catch (error) {
+        console.warn('Auto-load results failed:', error);
+    }
+}
+
+// ===== UPDATE PIE CHART =====
+function updatePieChart(summary) {
+    const matched = summary.matched_count || 0;
+    const unmatched = summary.unmatched_count || 0;
+    const notfound = summary.pair_not_found_count || 0;
+    const total = matched + unmatched + notfound;
+
+    // Update legend percentages
+    const matchedPct = total > 0 ? Math.round((matched / total) * 100) : 0;
+    const unmatchedPct = total > 0 ? Math.round((unmatched / total) * 100) : 0;
+    const notfoundPct = total > 0 ? Math.round((notfound / total) * 100) : 0;
+
+    const elM = document.getElementById('pie-matched-pct');
+    const elU = document.getElementById('pie-unmatched-pct');
+    const elN = document.getElementById('pie-notfound-pct');
+    if (elM) elM.textContent = matchedPct;
+    if (elU) elU.textContent = unmatchedPct;
+    if (elN) elN.textContent = notfoundPct;
+
+    // Update chart data
+    if (pieChartInstance) {
+        pieChartInstance.data.datasets[0].data = [matched, unmatched, notfound];
+        pieChartInstance.update();
+    }
+}
+
+// ===== RESULT TABS =====
+function initResultTabs() {
+    const tabs = document.querySelectorAll('.result-tab');
+    if (tabs.length === 0) return;
+
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const targetTab = tab.dataset.tab;
+
+            // Update active tab
+            tabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+
+            // Update active panel
+            document.querySelectorAll('.result-panel').forEach(p => p.classList.remove('active'));
+            const targetPanel = document.getElementById(`panel-${targetTab}`);
+            if (targetPanel) targetPanel.classList.add('active');
+        });
     });
 }
 
@@ -244,15 +491,15 @@ function initCharts() {
     Chart.defaults.color = chartDefaults.color;
     Chart.defaults.font.family = chartDefaults.font.family;
 
-    // Pie Chart — Reconciliation Status
+    // Pie Chart — Reconciliation Status (dynamic, starts with zeroes)
     const pieEl = document.getElementById('reconciliation-pie-chart');
     if (pieEl) {
-        new Chart(pieEl, {
+        pieChartInstance = new Chart(pieEl, {
             type: 'doughnut',
             data: {
-                labels: ['Matched', 'Unmatched', 'Pending'],
+                labels: ['Matched', 'Unmatched', 'Pair Not Found'],
                 datasets: [{
-                    data: [72, 20, 8],
+                    data: [0, 0, 0],
                     backgroundColor: [
                         'rgba(16, 185, 129, 0.8)',
                         'rgba(239, 68, 68, 0.8)',
@@ -282,7 +529,11 @@ function initCharts() {
                         padding: 12,
                         cornerRadius: 8,
                         callbacks: {
-                            label: (ctx) => `${ctx.label}: ${ctx.parsed}%`,
+                            label: (ctx) => {
+                                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                const pct = total > 0 ? Math.round((ctx.parsed / total) * 100) : 0;
+                                return `${ctx.label}: ${ctx.parsed} (${pct}%)`;
+                            },
                         },
                     },
                 },
