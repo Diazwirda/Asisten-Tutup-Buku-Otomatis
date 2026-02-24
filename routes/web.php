@@ -2,10 +2,10 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\RekonsiliasiController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\BiReportController;
 
-Route::get('/', function () {
-    return view('pages.beranda');
-});
+Route::get('/', [DashboardController::class, 'index']);
 
 Route::get('/rekonsiliasi', function () {
     return view('pages.rekonsiliasi');
@@ -22,3 +22,4 @@ Route::get('/pengaturan', function () {
 // Reconciliation API endpoints
 Route::post('/api/rekonsiliasi', [RekonsiliasiController::class, 'process']);
 Route::get('/api/rekonsiliasi/results', [RekonsiliasiController::class, 'getResults']);
+Route::get('/api/bi-report', [BiReportController::class, 'index']);

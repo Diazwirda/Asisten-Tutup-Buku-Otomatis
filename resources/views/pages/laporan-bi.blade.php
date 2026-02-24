@@ -15,10 +15,11 @@
             </svg>
         </div>
         <div class="stat-info">
-            <span class="stat-value">95.2%</span>
+            <span class="stat-value" id="bi-accuracy">0%</span>
             <span class="stat-label">Tingkat Akurasi</span>
         </div>
     </div>
+
     <div class="stat-card">
         <div class="stat-icon stat-icon-blue">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -27,10 +28,11 @@
             </svg>
         </div>
         <div class="stat-info">
-            <span class="stat-value">2.4 mnt</span>
+            <span class="stat-value" id="bi-avg-time">0 mnt</span>
             <span class="stat-label">Rata-rata Waktu Proses</span>
         </div>
     </div>
+
     <div class="stat-card">
         <div class="stat-icon stat-icon-purple">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -38,7 +40,7 @@
             </svg>
         </div>
         <div class="stat-info">
-            <span class="stat-value">12</span>
+            <span class="stat-value" id="bi-this-month">0</span>
             <span class="stat-label">Rekonsiliasi Bulan Ini</span>
         </div>
     </div>
@@ -57,6 +59,7 @@
             </div>
         </div>
     </div>
+
     <div class="card">
         <div class="card-header">
             <h3 class="card-title">Performa Rekonsiliasi</h3>

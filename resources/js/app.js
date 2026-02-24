@@ -12,6 +12,10 @@ document.addEventListener('DOMContentLoaded', () => {
     initRefreshResults();
     initResultTabs();
     initCharts();
+
+    // ✅ Ambil data BI dari DB (summary + chart)
+    loadBiReportFromDb();
+
     initCountAnimation();
     initSettingsForms();
     loadResultsData(); // Auto-load data on page load
@@ -541,18 +545,22 @@ function initCharts() {
         });
     }
 
-    // Bar Chart — Monthly Trend
+    // Bar Chart — Monthly Trend (BI)
     const barEl = document.getElementById('monthly-trend-chart');
     if (barEl) {
         const months = ['Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des', 'Jan', 'Feb'];
-        new Chart(barEl, {
+
+        // destroy on hot reload (safe)
+        if (window.monthlyTrendChart) window.monthlyTrendChart.destroy();
+
+        window.monthlyTrendChart = new Chart(barEl, {
             type: 'bar',
             data: {
                 labels: months,
                 datasets: [
                     {
                         label: 'Matched',
-                        data: [820, 850, 900, 870, 920, 950, 880, 910, 940, 970, 897, 920],
+                        data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                         backgroundColor: 'rgba(16, 185, 129, 0.7)',
                         borderColor: 'rgba(16, 185, 129, 1)',
                         borderWidth: 1,
@@ -560,7 +568,7 @@ function initCharts() {
                     },
                     {
                         label: 'Unmatched',
-                        data: [180, 150, 120, 160, 100, 80, 130, 110, 90, 60, 351, 100],
+                        data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                         backgroundColor: 'rgba(239, 68, 68, 0.7)',
                         borderColor: 'rgba(239, 68, 68, 1)',
                         borderWidth: 1,
@@ -600,18 +608,21 @@ function initCharts() {
         });
     }
 
-    // Line Chart — Performance
+    // Line Chart — Performance (BI)
     const lineEl = document.getElementById('performance-line-chart');
     if (lineEl) {
         const months = ['Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des', 'Jan', 'Feb'];
-        new Chart(lineEl, {
+
+        if (window.performanceChart) window.performanceChart.destroy();
+
+        window.performanceChart = new Chart(lineEl, {
             type: 'line',
             data: {
                 labels: months,
                 datasets: [
                     {
                         label: 'Akurasi (%)',
-                        data: [88, 90, 91, 89, 93, 94, 92, 93, 95, 96, 95, 95.2],
+                        data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                         borderColor: 'rgba(99, 102, 241, 1)',
                         backgroundColor: 'rgba(99, 102, 241, 0.1)',
                         borderWidth: 2,
@@ -625,7 +636,7 @@ function initCharts() {
                     },
                     {
                         label: 'Waktu Proses (menit)',
-                        data: [5.2, 4.8, 4.5, 4.7, 4.0, 3.8, 3.5, 3.2, 3.0, 2.8, 2.5, 2.4],
+                        data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                         borderColor: 'rgba(139, 92, 246, 1)',
                         backgroundColor: 'rgba(139, 92, 246, 0.05)',
                         borderWidth: 2,
@@ -671,32 +682,20 @@ function initCharts() {
         });
     }
 
-    // Category Bar Chart
+    // Category Bar Chart (BI)
     const catBarEl = document.getElementById('category-bar-chart');
     if (catBarEl) {
-        new Chart(catBarEl, {
+        if (window.categoryChart) window.categoryChart.destroy();
+
+        window.categoryChart = new Chart(catBarEl, {
             type: 'bar',
             data: {
-                labels: ['Biaya Operasional', 'Pendapatan', 'Pajak', 'Transfer Antar Rek.', 'Gaji & Tunjangan', 'Lainnya'],
+                labels: ['-'],
                 datasets: [{
                     label: 'Jumlah Selisih',
-                    data: [45, 32, 28, 18, 12, 8],
-                    backgroundColor: [
-                        'rgba(99, 102, 241, 0.7)',
-                        'rgba(139, 92, 246, 0.7)',
-                        'rgba(16, 185, 129, 0.7)',
-                        'rgba(245, 158, 11, 0.7)',
-                        'rgba(239, 68, 68, 0.7)',
-                        'rgba(20, 184, 166, 0.7)',
-                    ],
-                    borderColor: [
-                        'rgba(99, 102, 241, 1)',
-                        'rgba(139, 92, 246, 1)',
-                        'rgba(16, 185, 129, 1)',
-                        'rgba(245, 158, 11, 1)',
-                        'rgba(239, 68, 68, 1)',
-                        'rgba(20, 184, 166, 1)',
-                    ],
+                    data: [0],
+                    backgroundColor: ['rgba(99, 102, 241, 0.7)'],
+                    borderColor: ['rgba(99, 102, 241, 1)'],
                     borderWidth: 1,
                     borderRadius: 6,
                 }],
@@ -729,6 +728,70 @@ function initCharts() {
                 },
             },
         });
+    }
+}
+
+// ✅ FETCH BI REPORT DARI DB (summary + charts)
+async function loadBiReportFromDb() {
+    const hasBiPage =
+        document.getElementById('monthly-trend-chart') ||
+        document.getElementById('performance-line-chart') ||
+        document.getElementById('category-bar-chart');
+
+    if (!hasBiPage) return;
+
+    try {
+        const res = await fetch('/api/bi-report', {
+            headers: { 'Accept': 'application/json' },
+        });
+
+        if (!res.ok) throw new Error(`BI API error: ${res.status}`);
+
+        const data = await res.json();
+
+        // ===== Update Summary Cards =====
+        const elAcc = document.getElementById('bi-accuracy');
+        const elAvg = document.getElementById('bi-avg-time');
+        const elMonth = document.getElementById('bi-this-month');
+
+        if (elAcc) elAcc.textContent = `${data.summary.accuracy_percent}%`;
+        if (elAvg) elAvg.textContent = `${data.summary.avg_processing_min} mnt`;
+        if (elMonth) elMonth.textContent = `${data.summary.recons_this_month}`;
+
+        // ===== Update Monthly Trend Chart =====
+        if (window.monthlyTrendChart) {
+            window.monthlyTrendChart.data.labels = data.monthly.labels;
+            if (window.monthlyTrendChart.data.datasets[0]) {
+                window.monthlyTrendChart.data.datasets[0].data = data.monthly.matched;
+            }
+            if (window.monthlyTrendChart.data.datasets[1]) {
+                window.monthlyTrendChart.data.datasets[1].data = data.monthly.unmatched;
+            }
+            window.monthlyTrendChart.update();
+        }
+
+        // ===== Update Performance Chart =====
+        if (window.performanceChart) {
+            window.performanceChart.data.labels = data.performance.labels;
+            if (window.performanceChart.data.datasets[0]) {
+                window.performanceChart.data.datasets[0].data = data.performance.accuracy;
+            }
+            if (window.performanceChart.data.datasets[1]) {
+                window.performanceChart.data.datasets[1].data = data.performance.processing_min;
+            }
+            window.performanceChart.update();
+        }
+
+        // ===== Update Category Chart =====
+        if (window.categoryChart) {
+            window.categoryChart.data.labels = data.categories.labels;
+            if (window.categoryChart.data.datasets[0]) {
+                window.categoryChart.data.datasets[0].data = data.categories.values;
+            }
+            window.categoryChart.update();
+        }
+    } catch (err) {
+        console.error('loadBiReportFromDb failed:', err);
     }
 }
 
